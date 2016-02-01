@@ -24,7 +24,9 @@ module Lita
 
       # @overload route(pattern, method_name, **options)
       #   Creates a chat route.
-      #   @param pattern [Regexp] A regular expression to match incoming messages against.
+      #   @param pattern [Regexp, Proc] Either a regular expression to match incoming messages
+      #     against, or a Proc that will be called in the context of the handler with the message,
+      #     and should return a boolean indicating whether that message matches the route
       #   @param method_name [Symbol, String] The name of the instance method to trigger.
       #   @param command [Boolean] Whether or not the message must be directed at the robot.
       #   @param restrict_to [Array<Symbol, String>, nil] An optional list of authorization
@@ -34,7 +36,9 @@ module Lita
       #   @return [void]
       # @overload route(pattern, **options)
       #   Creates a chat route.
-      #   @param pattern [Regexp] A regular expression to match incoming messages against.
+      #   @param pattern [Regexp, Proc] Either a regular expression to match incoming messages
+      #     against, or a Proc that will be called in the context of the handler with the message,
+      #     and should return a boolean indicating whether that message matches the route
       #   @param command [Boolean] Whether or not the message must be directed at the robot.
       #   @param restrict_to [Array<Symbol, String>, nil] An optional list of authorization
       #     groups the user must be in to trigger the route.
@@ -69,8 +73,9 @@ module Lita
       # @param message [Lita::Message] The incoming message.
       # @return [Boolean] Whether or not the message matched any routes.
       def dispatch(robot, message)
+        handler = new(robot)
         routes.map do |route|
-          next unless route_applies?(route, message, robot)
+          next unless route_applies?(handler, route, message, robot)
           log_dispatch(route)
           robot.trigger(
             :message_dispatched,
@@ -79,7 +84,7 @@ module Lita
             message: message,
             robot: robot
           )
-          dispatch_to_route(route, robot, message)
+          dispatch_to_route(handler, route, robot, message)
           true
         end.any?
       end
@@ -90,10 +95,9 @@ module Lita
       # @param message [Lita::Message] The incoming message.
       # @return [void]
       # @since 3.3.0
-      def dispatch_to_route(route, robot, message)
+      def dispatch_to_route(handler, route, robot, message)
         response = Response.new(message, route.pattern)
         robot.hooks[:trigger_route].each { |hook| hook.call(response: response, route: route) }
-        handler = new(robot)
         route.callback.call(handler, response)
       rescue => error
         log_error(robot, error)
@@ -111,8 +115,8 @@ module Lita
       end
 
       # Determines whether or not an incoming messages should trigger a route.
-      def route_applies?(route, message, robot)
-        RouteValidator.new(self, route, message, robot).call
+      def route_applies?(handler, route, message, robot)
+        RouteValidator.new(handler, route, message, robot).call
       end
 
       # Logs the dispatch of message.
